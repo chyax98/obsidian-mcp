@@ -22,11 +22,7 @@ Obsidian 知识库的语义搜索和记忆服务。
 **全局安装（推荐）：**
 
 ```bash
-# 从本地安装
-uv tool install /path/to/obsidian-mcp --python 3.12
-
-# 或从 GitHub 安装
-uv tool install git+https://github.com/yourname/obsidian-mcp --python 3.12
+uv tool install obsidian-vault-mcp --python 3.12
 ```
 
 安装后可直接使用 `obsidian-vault-mcp` 命令。
