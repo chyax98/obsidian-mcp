@@ -1,0 +1,26 @@
+[project]
+name = "obsidian-vault-mcp"
+version = "1.0.0"
+description = "Obsidian Vault MCP - 语义搜索和记忆服务"
+readme = "README.md"
+authors = [
+    { name = "chyax98", email = "chyax98@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastembed>=0.7.4",
+    "fastmcp>=2.14.1",
+    "jieba>=0.42.1",
+    "lancedb>=0.26.0",
+    "rank-bm25>=0.2.2",
+]
+
+[project.scripts]
+obsidian-vault-mcp = "server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["server.py", "config.py", "vault", "search", "memory"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
