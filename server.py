@@ -1,4 +1,4 @@
-"""Obsidian Vault MCP Server - 极简版"""
+"""Vault Retriever - Obsidian 知识库智能检索服务"""
 
 import json
 import logging
@@ -202,8 +202,8 @@ def create_server(vault_path: Path, config: Config | None = None) -> FastMCP:
 
     # MCP 服务器
     mcp = FastMCP(
-        name="obsidian-vault-mcp",
-        instructions="""Obsidian 知识库语义搜索服务。当用户询问笔记内容、查找信息或需要知识库上下文时，优先使用 vault_search 进行智能搜索。
+        name="vault-retriever",
+        instructions="""Obsidian 知识库智能检索服务。当用户询问笔记内容、查找信息或需要知识库上下文时，优先使用 vault_search 进行智能搜索。
 工具推荐顺序：vault_search（搜索）→ vault_read（读取详情）→ vault_links/vault_related（发现关联）。""",
     )
 
@@ -404,7 +404,7 @@ def main():
     import os
     import argparse
 
-    parser = argparse.ArgumentParser(description="Obsidian Vault MCP Server")
+    parser = argparse.ArgumentParser(description="Vault Retriever - Obsidian 知识库智能检索服务")
     parser.add_argument("--vault", type=str, default=None, help="Vault 路径")
     args = parser.parse_args()
 

@@ -1,13 +1,13 @@
 [project]
-name = "obsidian-vault-mcp"
-version = "1.1.1"
-description = "Obsidian Vault MCP - 语义搜索和记忆服务"
+name = "vault-retriever"
+version = "1.0.0"
+description = "Vault Retriever - Obsidian 知识库智能检索服务"
 readme = "README.md"
 license = "MIT"
 authors = [
     { name = "chyax98", email = "chyax98@gmail.com" }
 ]
-keywords = ["obsidian", "mcp", "search", "semantic", "knowledge-base"]
+keywords = ["obsidian", "mcp", "retriever", "semantic-search", "knowledge-base", "rag"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -29,11 +29,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/chyax98/obsidian-mcp"
-Repository = "https://github.com/chyax98/obsidian-mcp"
+Homepage = "https://github.com/chyax98/vault-retriever"
+Repository = "https://github.com/chyax98/vault-retriever"
 
 [project.scripts]
-obsidian-vault-mcp = "server:main"
+vault-retriever = "server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["server.py", "config.py", "vault", "search", "memory"]

@@ -15,14 +15,14 @@ class Config:
     @property
     def storage_path(self) -> Path:
         """数据存储路径"""
-        path = self.vault_path / ".obsidian" / "plugins" / "vault-mcp-data"
+        path = self.vault_path / ".obsidian" / "plugins" / "vault-retriever-data"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
 
 def load_config(vault_path: Path) -> Config:
     """加载配置"""
-    config_file = vault_path / ".obsidian" / "vault-mcp.json"
+    config_file = vault_path / ".obsidian" / "vault-retriever.json"
 
     if config_file.exists():
         data = json.loads(config_file.read_text())
