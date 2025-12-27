@@ -256,16 +256,25 @@ def create_server(vault_path: Path, config: Config | None = None) -> FastMCP:
 
 def main():
     """入口"""
+    import os
     import argparse
 
     parser = argparse.ArgumentParser(description="Obsidian Vault MCP Server")
-    parser.add_argument("--vault", type=str, default=".", help="Vault 路径")
+    parser.add_argument("--vault", type=str, default=None, help="Vault 路径")
     args = parser.parse_args()
 
-    vault_path = Path(args.vault).resolve()
+    # 优先级：命令行参数 > 环境变量 > 当前目录
+    vault_str = args.vault or os.environ.get("OBSIDIAN_VAULT_PATH") or "."
+    vault_path = Path(vault_str).resolve()
+
     if not vault_path.exists():
         print(f"错误: 路径不存在 {vault_path}")
         exit(1)
+
+    # 验证是否是 Obsidian vault
+    obsidian_dir = vault_path / ".obsidian"
+    if not obsidian_dir.exists():
+        print(f"警告: {vault_path} 不是 Obsidian vault（缺少 .obsidian 目录）")
 
     logger.info(f"启动服务: {vault_path}")
     mcp = create_server(vault_path)

@@ -23,21 +23,35 @@ Obsidian 知识库的语义搜索和记忆服务。
 uv sync
 ```
 
-## 使用
+## Vault 路径配置
+
+优先级：命令行参数 > 环境变量 > 当前目录
 
 ```bash
+# 方式 1：命令行参数
 uv run obsidian-vault-mcp --vault /path/to/vault
+
+# 方式 2：环境变量
+export OBSIDIAN_VAULT_PATH=/path/to/vault
+uv run obsidian-vault-mcp
+
+# 方式 3：在 vault 目录下直接运行
+cd /path/to/vault
+uv run --directory /path/to/obsidian-mcp obsidian-vault-mcp
 ```
 
 ## 配置 MCP 客户端
 
-**Claude Code：**
+**Claude Code（推荐，使用环境变量）：**
 
 ```bash
-claude mcp add obsidian-vault --transport stdio -- uv run --directory /path/to/obsidian-mcp obsidian-vault-mcp --vault /path/to/vault
+claude mcp add obsidian-vault \
+  --transport stdio \
+  -e OBSIDIAN_VAULT_PATH=/path/to/vault \
+  -- uv run --directory /path/to/obsidian-mcp obsidian-vault-mcp
 ```
 
-**`.mcp.json`：**
+**项目 `.mcp.json`（在 vault 目录下）：**
 
 ```json
 {
@@ -45,16 +59,21 @@ claude mcp add obsidian-vault --transport stdio -- uv run --directory /path/to/o
     "obsidian-vault": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/obsidian-mcp", "obsidian-vault-mcp", "--vault", "/path/to/vault"]
+      "args": ["run", "--directory", "/path/to/obsidian-mcp", "obsidian-vault-mcp"],
+      "env": {
+        "OBSIDIAN_VAULT_PATH": "${workspaceFolder}"
+      }
     }
   }
 }
 ```
 
-## 索引更新
+> 注：`${workspaceFolder}` 会被替换为当前工作目录（vault 路径）
 
-- 启动时自动加载缓存
-- 后台每 5 分钟检查文件变动
+## 索引机制
+
+- 启动时后台初始化（不阻塞）
+- 每 5 分钟检查文件变动
 - 增量更新（只处理变动文件）
 
 ## License
