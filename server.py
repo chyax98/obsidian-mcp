@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 from pathlib import Path
 from dataclasses import asdict
 from typing import Annotated, Literal
@@ -24,22 +25,47 @@ logger = logging.getLogger(__name__)
 class IndexState:
     """索引状态管理"""
     def __init__(self):
-        self.ready = False
+        self.bm25_ready = False
+        self.vector_ready = False
         self.doc_contents: dict[str, str] = {}
         self._lock = threading.Lock()
+        # 性能指标
+        self.metrics = {
+            "bm25_index_time": 0.0,
+            "vector_index_time": 0.0,
+            "total_docs": 0,
+            "last_update": "",
+        }
 
-    def set_ready(self, contents: dict[str, str]):
+    def set_bm25_ready(self, contents: dict[str, str]):
         with self._lock:
             self.doc_contents = contents
-            self.ready = True
+            self.bm25_ready = True
+            self.metrics["total_docs"] = len(contents)
 
-    def is_ready(self) -> bool:
+    def set_vector_ready(self):
         with self._lock:
-            return self.ready
+            self.vector_ready = True
+
+    def is_bm25_ready(self) -> bool:
+        with self._lock:
+            return self.bm25_ready
+
+    def is_vector_ready(self) -> bool:
+        with self._lock:
+            return self.vector_ready
 
     def get_contents(self) -> dict[str, str]:
         with self._lock:
             return self.doc_contents.copy()
+
+    def update_metrics(self, **kwargs):
+        with self._lock:
+            self.metrics.update(kwargs)
+
+    def get_metrics(self) -> dict:
+        with self._lock:
+            return self.metrics.copy()
 
 
 def create_server(vault_path: Path, config: Config | None = None) -> FastMCP:
@@ -59,24 +85,38 @@ def create_server(vault_path: Path, config: Config | None = None) -> FastMCP:
     # 后台初始化索引（不阻塞主线程）
     def init_index():
         logger.info("后台初始化索引...")
+        start_total = time.time()
+
         docs = vault.load_all_documents()
         doc_contents = {d.path: d.content for d in docs}
         file_stats = {d.path: (d.mtime, len(d.content)) for d in docs}
 
-        # 尝试增量更新
+        # BM25 索引
+        start_bm25 = time.time()
         result = indexer.index_incremental(doc_contents, file_stats)
         if result["status"] == "unchanged":
-            # 缓存有效但 BM25 需要重建（内存索引）
             bm25.index(doc_contents)
-            logger.info("从缓存恢复索引")
-        elif result["status"] != "updated":
-            indexer.index_full(doc_contents, file_stats)
-            logger.info(f"全量索引完成: {len(docs)} 文档")
-        else:
-            logger.info(f"增量更新: {result}")
+            logger.info("从缓存恢复 BM25 索引")
+        bm25_time = time.time() - start_bm25
 
-        state.set_ready(doc_contents)
-        logger.info("索引就绪")
+        # BM25 就绪，可以开始搜索
+        state.set_bm25_ready(doc_contents)
+        state.update_metrics(bm25_index_time=bm25_time)
+        logger.info(f"BM25 索引就绪 ({bm25_time:.2f}s)")
+
+        # 向量索引（可选，耗时较长）
+        start_vector = time.time()
+        if not vector.is_indexed():
+            vector.index(doc_contents)
+        vector_time = time.time() - start_vector
+
+        state.set_vector_ready()
+        state.update_metrics(
+            vector_index_time=vector_time,
+            last_update=time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        logger.info(f"向量索引就绪 ({vector_time:.2f}s)")
+        logger.info(f"索引完成，总耗时 {time.time() - start_total:.2f}s")
 
     # 启动后台索引线程
     threading.Thread(target=init_index, daemon=True).start()
@@ -86,8 +126,7 @@ def create_server(vault_path: Path, config: Config | None = None) -> FastMCP:
         docs = vault.load_all_documents()
         contents = {d.path: d.content for d in docs}
         stats = {d.path: (d.mtime, len(d.content)) for d in docs}
-        # 更新状态
-        state.set_ready(contents)
+        state.set_bm25_ready(contents)
         return contents, stats
 
     indexer.start_background(get_docs)
@@ -116,54 +155,75 @@ def create_server(vault_path: Path, config: Config | None = None) -> FastMCP:
         ] = "hybrid",
         limit: Annotated[int, Field(default=10, ge=1, le=50)] = 10,
     ) -> dict:
-        # 检查索引是否就绪
-        if not state.is_ready():
-            return {"error": "索引正在初始化，请稍后再试", "results": [], "count": 0}
+        start = time.time()
 
-        doc_contents = state.get_contents()
-
+        # BM25 搜索
         if mode == "bm25":
+            if not state.is_bm25_ready():
+                return {"error": "BM25 索引初始化中", "results": [], "count": 0}
             results = bm25.search(query, limit)
-        elif mode == "semantic":
-            if not vector.is_indexed():
-                vector.index(doc_contents)
+            return {
+                "results": [asdict(r) for r in results],
+                "count": len(results),
+                "time_ms": int((time.time() - start) * 1000),
+            }
+
+        # 语义搜索
+        if mode == "semantic":
+            if not state.is_vector_ready():
+                return {"error": "向量索引初始化中，请使用 bm25 模式", "results": [], "count": 0}
             results = vector.search(query, limit)
-        else:  # hybrid
-            if not vector.is_indexed():
-                vector.index(doc_contents)
+            return {
+                "results": [asdict(r) for r in results],
+                "count": len(results),
+                "time_ms": int((time.time() - start) * 1000),
+            }
 
-            bm25_results = bm25.search(query, limit * 2)
-            vector_results = vector.search(query, limit * 2)
+        # 混合搜索
+        if not state.is_bm25_ready():
+            return {"error": "索引初始化中", "results": [], "count": 0}
 
-            # 融合分数
-            scores: dict[str, float] = {}
-            info: dict[str, dict] = {}
+        bm25_results = bm25.search(query, limit * 2)
 
-            # 归一化 BM25
-            if bm25_results:
-                max_s = max(r.score for r in bm25_results)
-                min_s = min(r.score for r in bm25_results)
-                range_s = max_s - min_s if max_s != min_s else 1.0
-                for r in bm25_results:
-                    norm = (r.score - min_s) / range_s if range_s else 0.5
-                    scores[r.path] = norm * 0.5
-                    info[r.path] = {"path": r.path, "snippet": r.snippet}
+        # 如果向量索引未就绪，降级为纯 BM25
+        if not state.is_vector_ready():
+            return {
+                "results": [asdict(r) for r in bm25_results[:limit]],
+                "count": min(len(bm25_results), limit),
+                "time_ms": int((time.time() - start) * 1000),
+                "note": "向量索引未就绪，已降级为 BM25",
+            }
 
-            for r in vector_results:
-                scores[r.path] = scores.get(r.path, 0) + r.score * 0.5
-                if r.path not in info:
-                    info[r.path] = {"path": r.path, "snippet": r.snippet}
+        vector_results = vector.search(query, limit * 2)
 
-            sorted_results = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-            results = [
-                {"path": p, "score": s, "snippet": info[p]["snippet"]}
-                for p, s in sorted_results[:limit]
-            ]
-            return {"results": results, "count": len(results)}
+        # 融合分数
+        scores: dict[str, float] = {}
+        info: dict[str, dict] = {}
+
+        if bm25_results:
+            max_s = max(r.score for r in bm25_results)
+            min_s = min(r.score for r in bm25_results)
+            range_s = max_s - min_s if max_s != min_s else 1.0
+            for r in bm25_results:
+                norm = (r.score - min_s) / range_s if range_s else 0.5
+                scores[r.path] = norm * 0.5
+                info[r.path] = {"path": r.path, "snippet": r.snippet}
+
+        for r in vector_results:
+            scores[r.path] = scores.get(r.path, 0) + r.score * 0.5
+            if r.path not in info:
+                info[r.path] = {"path": r.path, "snippet": r.snippet}
+
+        sorted_results = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        results = [
+            {"path": p, "score": s, "snippet": info[p]["snippet"]}
+            for p, s in sorted_results[:limit]
+        ]
 
         return {
-            "results": [asdict(r) for r in results],
-            "count": len(results)
+            "results": results,
+            "count": len(results),
+            "time_ms": int((time.time() - start) * 1000),
         }
 
     # ========== 链接分析 ==========
@@ -241,12 +301,19 @@ def create_server(vault_path: Path, config: Config | None = None) -> FastMCP:
 
     @mcp.tool(name="stats", description="统计信息")
     def stats() -> dict:
+        metrics = state.get_metrics()
         return {
             "vault": {"notes": len(vault.list_notes())},
-            "search": {
-                "ready": state.is_ready(),
-                "bm25": len(bm25.documents),
+            "index": {
+                "bm25_ready": state.is_bm25_ready(),
+                "vector_ready": state.is_vector_ready(),
+                "bm25_docs": len(bm25.documents),
                 "vector": vector.get_stats(),
+            },
+            "performance": {
+                "bm25_index_time_s": round(metrics["bm25_index_time"], 2),
+                "vector_index_time_s": round(metrics["vector_index_time"], 2),
+                "last_update": metrics["last_update"],
             },
             "memory": memory.get_stats(),
         }

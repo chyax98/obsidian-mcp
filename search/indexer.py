@@ -122,6 +122,17 @@ class Indexer:
 
         logger.info(f"增量更新: +{len(added)}, ~{len(modified)}, -{len(deleted)}")
 
+        # 如果新增文件过多，直接全量索引（避免逐个添加重建）
+        if len(added) > 100:
+            logger.info("新增文件过多，执行全量索引")
+            self.index_full(all_docs, file_stats)
+            return {
+                "status": "updated",
+                "added": len(added),
+                "modified": len(modified),
+                "deleted": len(deleted),
+            }
+
         # 删除
         for path in deleted:
             self.bm25.remove(path)
@@ -129,13 +140,22 @@ class Indexer:
             if path in self._file_states:
                 del self._file_states[path]
 
-        # 添加和修改
-        for path in added + modified:
-            content = all_docs[path]
-            self.bm25.add(path, content)
-            self.vector.add(path, content)
-            mtime, size = file_stats[path]
-            self._file_states[path] = FileState(mtime=mtime, size=size)
+        # 添加和修改 - 批量处理
+        to_update = added + modified
+        if to_update:
+            # 更新 BM25（先添加到 documents，最后一次性重建）
+            for path in to_update:
+                self.bm25.documents[path] = all_docs[path]
+            self.bm25.index(self.bm25.documents)
+
+            # 更新向量索引
+            for path in to_update:
+                self.vector.add(path, all_docs[path])
+
+            # 更新缓存状态
+            for path in to_update:
+                mtime, size = file_stats[path]
+                self._file_states[path] = FileState(mtime=mtime, size=size)
 
         self._save_cache()
 
